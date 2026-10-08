@@ -92,3 +92,7 @@ uv build --out-dir dist
 The native build bundles the installed SDK and runs seven commands against a fake API.
 `bash scripts/ci.sh` is the CI entry point; set `MODELHUB_SDK_WHEEL` for the initial
 pre-publication build. See [RELEASING.md](RELEASING.md). Builds do not publish or deploy.
+
+## License
+
+[MIT](LICENSE), Copyright (c) 2026 AKOOL.

@@ -1,7 +1,7 @@
 # CLI release process
 
-The Git host/organization and production hosting are not configured. No public install
-URL is currently verified as available.
+Source repository: `https://github.com/AKOOL-Official/model-hub-cli`. Production download
+hosting is not yet configured; no public install URL is currently verified as available.
 
 1. Obtain the exact Python SDK wheel required by `pyproject.toml`.
 2. Bump the CLI version in `pyproject.toml` and `src/akool_modelhub_cli/main.py`.

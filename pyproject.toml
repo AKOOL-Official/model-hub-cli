@@ -7,8 +7,14 @@ name = "akool-modelhub-cli"
 version = "0.1.0"
 description = "AKOOL Model Hub cli"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = ["akool-modelhub-sdk==0.1.0", "jsonschema>=4.23,<5"]
+
+[project.urls]
+Repository = "https://github.com/AKOOL-Official/model-hub-cli"
+Issues = "https://github.com/AKOOL-Official/model-hub-cli/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/akool_modelhub_cli"]
