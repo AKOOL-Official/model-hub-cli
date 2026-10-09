@@ -4,7 +4,7 @@
 
 **Discover models. Preview pricing. Run AI tasks from your terminal.**
 
-[![Version: 0.2.0 preview](https://img.shields.io/badge/version-0.2.0_preview-2563eb)](#install)
+[![Version: 0.2.1 preview](https://img.shields.io/badge/version-0.2.1_preview-2563eb)](#install)
 [![License: MIT](https://img.shields.io/badge/license-MIT-16a34a)](LICENSE)
 
 [Install](#install) · [Walkthrough](#walkthrough) · [Inputs](#command-line-inputs) · [Commands](#command-reference) · [Troubleshooting](#troubleshooting)
@@ -25,7 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/AKOOL-Official/model-hub-cli/main/i
 **Example output** — your installation path will differ:
 
 ```text
-Installed akool-mh 0.2.0 at /Users/alex/.local/bin/akool-mh
+Installed akool-mh 0.2.1 at /Users/alex/.local/bin/akool-mh
 ```
 
 The installer selects your platform, verifies its SHA256 checksum and installs to
@@ -38,7 +38,7 @@ akool-mh --version
 **Output:**
 
 ```text
-AKOOL Model Hub CLI 0.2.0
+AKOOL Model Hub CLI 0.2.1
 ```
 
 If the command is not found, follow the installer's PATH instructions. For the current
@@ -48,7 +48,7 @@ or `~/.bashrc` to keep it for new terminals.
 <details>
 <summary><strong>Platforms and installation alternatives</strong></summary>
 
-Current release: [v0.2.0](https://github.com/AKOOL-Official/model-hub-cli/releases/tag/v0.2.0).
+Current release: [v0.2.1](https://github.com/AKOOL-Official/model-hub-cli/releases/tag/v0.2.1).
 
 | Platform | Build and test environment |
 | --- | --- |
@@ -62,7 +62,7 @@ signed, not Apple notarized.
 To pin a version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AKOOL-Official/model-hub-cli/main/install.sh | bash -s -- --version 0.2.0
+curl -fsSL https://raw.githubusercontent.com/AKOOL-Official/model-hub-cli/main/install.sh | bash -s -- --version 0.2.1
 ```
 
 This prints the same installation message shown above. Add `--install-dir ~/.local/bin`
@@ -74,7 +74,7 @@ after `bash -s --` to choose a directory. The script needs Bash, curl and either
 same directory, run:
 
 ```bash
-python -m pip install --find-links . ./akool_modelhub_cli-0.2.0-py3-none-any.whl
+python -m pip install --find-links . ./akool_modelhub_cli-0.2.1-py3-none-any.whl
 ```
 
 Pip reports the installed packages. Neither Python package is published to a public
@@ -655,11 +655,11 @@ akool-mh upgrade
 {
   "updated": true,
   "path": "/Users/alex/.local/bin/akool-mh",
-  "message": "Installed akool-mh 0.2.0 at /Users/alex/.local/bin/akool-mh"
+  "message": "Installed akool-mh 0.2.1 at /Users/alex/.local/bin/akool-mh"
 }
 ```
 
-Upgrades preserve credentials. Use `akool-mh upgrade --target-version 0.2.0` to select a
+Upgrades preserve credentials. Use `akool-mh upgrade --target-version 0.2.1` to select a
 published version. Python package installations update with pip instead of `upgrade`.
 
 To remove the locally saved API key:
