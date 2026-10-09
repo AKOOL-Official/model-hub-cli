@@ -48,7 +48,17 @@ def main():
                 self.send(
                     {
                         "model_id": "smoke/model",
-                        "parameters": [{"key": "prompt", "type": "text", "required": True}],
+                        "parameters": [
+                            {"key": "prompt", "type": "text", "required": True},
+                            {
+                                "key": "duration",
+                                "type": "select",
+                                "options": [{"value": 5}, {"value": 10}],
+                            },
+                            {"key": "enabled", "type": "boolean"},
+                            {"key": "references", "type": "image_upload_group", "min_count": 2},
+                            {"key": "timeout", "type": "number"},
+                        ],
                         "examples": [],
                     }
                 )
@@ -89,8 +99,27 @@ def main():
             ["--json", "status"],
             ["models", "image", "--json"],
             ["schema", "smoke/model", "--json"],
-            ["price", "smoke/model", "-p", "test", "--json"],
-            ["run", "smoke/model", "-p", "test", "--request-id", "binary-task", "--wait", "--json"],
+            ["price", "smoke/model", "--prompt", "test", "--duration", "5", "--json"],
+            [
+                "run",
+                "smoke/model",
+                "--prompt",
+                "test",
+                "--duration=5",
+                "--enabled",
+                "--references",
+                "https://example.com/a.png",
+                "--references",
+                "https://example.com/b.png",
+                "--timeout",
+                "5",
+                "-i",
+                "timeout=8",
+                "--request-id",
+                "binary-task",
+                "--wait",
+                "--json",
+            ],
             ["result", "binary-task", "--json"],
             ["history", "--json"],
         ]:
@@ -101,12 +130,35 @@ def main():
             assert isinstance(json.loads(result.stdout), dict)
             assert "sk-binary-test" not in result.stdout + result.stderr
         assert len(submitted) == 1
+        assert submitted[0][1]["input"] == {
+            "prompt": "test",
+            "duration": 5,
+            "enabled": True,
+            "timeout": 8,
+            "references": ["https://example.com/a.png", "https://example.com/b.png"],
+        }
+        for command, code, fragment in [
+            (["run", "smoke/model", "--help"], 0, "--duration"),
+            (["price", "smoke/model", "--help", "--json"], 0, '"options"'),
+            (
+                ["run", "smoke/model", "--prompt", "test", "--duraton", "5", "--json"],
+                2,
+                "Did you mean --duration",
+            ),
+            (["run", "smoke/model", "--prompt", "test", "--duration", "7", "--json"], 2, "enum"),
+        ]:
+            result = subprocess.run(
+                [cli, *command], env=env, capture_output=True, text=True, timeout=30
+            )
+            assert result.returncode == code, (command, result.stdout, result.stderr)
+            assert fragment in result.stdout
+        assert len(submitted) == 1, "Help or invalid inputs must never submit tasks"
 
     finally:
         server.shutdown()
         server.server_close()
         worker.join(timeout=5)
-    print("Standalone CLI: 7 commands passed")
+    print("Standalone CLI: 7 commands and 4 dynamic-input/help checks passed")
 
 
 if __name__ == "__main__":

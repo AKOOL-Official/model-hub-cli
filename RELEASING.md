@@ -24,15 +24,15 @@ into native binaries. Do not maintain a second script in the Python source direc
 4. Commit and push the reviewed code to `main`, then create and push its version tag:
 
    ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
+   git tag v0.2.0
+   git push origin v0.2.0
    ```
 
    Use a new version for subsequent releases. Never move a tag or overwrite an existing
    release. The workflow checks that the tag matches the package version.
 5. Follow **Build and release CLI** in GitHub Actions. It tests and builds macOS arm64,
    macOS amd64, Linux amd64 and Linux arm64. Every runner tests the packaged binary's
-   seven commands and the GitHub-layout install/upgrade path using a local fake API.
+   business commands, dynamic model inputs and the GitHub-layout install/upgrade path using a local fake API.
 6. Only after all four builds pass, the publish job verifies their hashes, uploads assets
    into a draft, then publishes it as the latest release. It uses the job's `GITHUB_TOKEN`
    with `contents: write`; no personal token or external hosting secret is needed.
@@ -64,8 +64,7 @@ and binary from `download/vVERSION/`. This prevents an update to “latest” fr
 versions midway through an installation. Explicit `--version VERSION` skips latest lookup.
 
 Only a published release marked as latest is selected automatically; GitHub prereleases
-can be installed by explicit version. The initial 0.1.0 release is the default download
-channel even though its product APIs are still in preview.
+can be installed by explicit version. The latest published release is the default download channel; product APIs remain in preview.
 
 ## Local verification and mirrors
 

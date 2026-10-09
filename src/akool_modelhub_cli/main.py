@@ -34,16 +34,24 @@ from akool_modelhub_cli.config import (
     validate_base_url,
     write_config,
 )
+from akool_modelhub_cli.inputs import (
+    UsageError,
+    format_help,
+    help_data,
+    model_inputs,
+    parse_arguments,
+    reject_constant,
+)
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 MAX_INPUT_BYTES = 1024 * 1024
 
 
-class UsageError(ValueError):
-    pass
-
-
 class Parser(argparse.ArgumentParser):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("allow_abbrev", False)
+        super().__init__(*args, **kwargs)
+
     def error(self, message):
         raise UsageError(message)
 
@@ -83,6 +91,7 @@ def build_parser() -> Parser:
     )
     parser.set_defaults(json=False, base_url=None, request_timeout=90.0)
     commands = parser.add_subparsers(dest="command", required=True, parser_class=Parser)
+    parser.command_parsers = commands.choices
     for name, help_text in (
         ("login", "Validate and save your Model Hub API key (interactive, no generation)"),
         ("logout", "Remove the locally stored Model Hub key; keep the API root"),
@@ -114,13 +123,17 @@ def build_parser() -> Parser:
             help="Preview the price"
             if name == "price"
             else "Submit one billable task; add --wait to wait for its result",
-            epilog="Inspect parameters with: akool-mh schema MODEL_ID. Input precedence: file → prompt → -i.",
+            epilog=(
+                "Model inputs: --FIELD VALUE (exact schema names). "
+                "Use this command with MODEL_ID --help for model-specific options. "
+                "Precedence: file → model flags (including -p) → -i."
+            ),
         )
         command.add_argument("model_id")
         command.add_argument(
             "--input-file", help="JSON object file; '-' reads stdin. Media paths are not uploaded."
         )
-        command.add_argument("-p", "--prompt", help="Set input.prompt without rewriting its text")
+        command.add_argument("-p", "--prompt", help="Shortcut for the model's prompt input")
         command.add_argument(
             "-i",
             "--input",
@@ -161,11 +174,7 @@ def build_parser() -> Parser:
     return parser
 
 
-def reject_constant(value: str):
-    raise UsageError(f"Non-finite JSON number is not allowed: {value}")
-
-
-def read_input(args) -> dict[str, Any]:
+def read_input(args, *, base_only=False) -> dict[str, Any]:
     result = {}
     if args.input_file:
         if args.input_file == "-":
@@ -185,7 +194,7 @@ def read_input(args) -> dict[str, Any]:
             raise UsageError("Input JSON must be an object")
     if args.prompt is not None:
         result["prompt"] = args.prompt
-    for item in args.input:
+    for item in [] if base_only else args.input:
         key, separator, value = item.partition("=")
         if not separator or not key or any(ord(c) < 32 for c in key):
             raise UsageError("Use -i KEY=VALUE with a nonempty field name")
@@ -280,7 +289,18 @@ async def execute(args, operation: Operation) -> tuple[dict, int]:
             "environment_key_present": bool(os.getenv("AKOOL_MODELHUB_API_KEY")),
         }, 0
     # Local validation precedes any network call.
-    inputs = read_input(args) if args.command in ("run", "price") else None
+    inputs = (
+        read_input(args, base_only=True)
+        if args.command in ("run", "price") and not getattr(args, "model_help", False)
+        else None
+    )
+    overrides = (
+        read_input(argparse.Namespace(input_file=None, prompt=None, input=args.input))
+        if inputs is not None
+        else {}
+    )
+    if args.command in ("run", "price"):
+        validate_id(args.model_id, model=True)
     if args.command == "run":
         validate_id(args.model_id, model=True)
         if args.request_id is not None:
@@ -329,6 +349,17 @@ async def execute(args, operation: Operation) -> tuple[dict, int]:
             return {**schema.model_dump(mode="json"), "examples": model.examples}, 0
         if args.command in ("price", "run"):
             schema = await client.models.schema(args.model_id, refresh=True)
+            if getattr(args, "model_help", False):
+                return help_data(
+                    args.model_id, args.command, schema.input_schema, args.reserved_inputs
+                ), 0
+            inputs.update(
+                model_inputs(
+                    getattr(args, "model_inputs", []), schema.input_schema, overridden=overrides
+                )
+            )
+            # -i is the final override, including reserved or otherwise unusual field names.
+            inputs.update(overrides)
             try:
                 Draft202012Validator(schema.input_schema, format_checker=FormatChecker()).validate(
                     inputs
@@ -418,9 +449,12 @@ def main(argv: list[str] | None = None) -> int:
     operation = Operation()
     as_json = "--json" in argv
     try:
-        args = build_parser().parse_args(argv)
+        args = parse_arguments(build_parser(), argv)
         as_json = args.json
         data, exit_code = asyncio.run(execute(args, operation))
+        if getattr(args, "model_help", False) and not as_json:
+            print(redact(args.command_help + "\n" + format_help(data), operation))
+            return exit_code
     except KeyboardInterrupt:
         data, exit_code = (
             {

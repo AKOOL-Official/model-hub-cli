@@ -81,7 +81,7 @@ package installations, obtain the CLI wheel and its matching SDK wheel from your
 integration contact and place them in the same directory:
 
 ```bash
-python -m pip install --find-links . ./akool_modelhub_cli-0.1.0-py3-none-any.whl
+python -m pip install --find-links . ./akool_modelhub_cli-0.2.0-py3-none-any.whl
 akool-mh --version
 ```
 
@@ -133,7 +133,7 @@ PROMPT='A studio photograph of a ceramic coffee cup on a wooden table'
 akool-mh price "$MODEL_ID" --prompt "$PROMPT"
 ```
 
-Use `-p` as a shorter spelling of `--prompt`. Add other fields with `-i KEY=VALUE`,
+Use `-p` as a shorter spelling of `--prompt`. Add other fields as `--FIELD VALUE`,
 using the exact names and allowed values from the model's schema. No input file is required.
 
 `price` does not generate media. The returned price is an estimate, not a binding charge.
@@ -147,7 +147,7 @@ The next command starts one **billable generation task** with the same inputs:
 akool-mh run "$MODEL_ID" --prompt "$PROMPT" --wait
 ```
 
-If you added `-i` fields to the price preview, include those same fields here.
+If you added other model flags to the price preview, include those same flags here.
 The CLI generates a unique request ID automatically and prints `Task ID: ...` before
 submission. Keep that ID for recovery. `--wait` waits for the result; omit it to return
 immediately after submission and query the task later.
@@ -173,7 +173,7 @@ Run `result` again with the same ID to continue.
 | `akool-mh status` | Check authentication and API connectivity |
 | `akool-mh models [query]` | Search the models available to your key |
 | `akool-mh schema MODEL_ID` | Inspect input/output schemas and examples |
-| `akool-mh price MODEL_ID -p 'Your prompt'` | Estimate the price; add model fields with `-i KEY=VALUE` |
+| `akool-mh price MODEL_ID -p 'Your prompt'` | Estimate the price; add model fields with `--FIELD VALUE` |
 | `akool-mh run MODEL_ID -p 'Your prompt' --wait` | Generate and wait; omit `--wait` to query later |
 | `akool-mh result TASK_ID` | Read an existing task; add `--wait` to keep waiting |
 | `akool-mh history --limit 10` | List account task history across API keys |
@@ -181,38 +181,79 @@ Run `result` again with the same ID to continue.
 | `akool-mh upgrade` | Update a standalone binary from GitHub Releases |
 
 Every command accepts `--help`. Use `akool-mh --version` to check your installed version.
+`akool-mh run MODEL_ID --help` and `akool-mh price MODEL_ID --help` also show that model’s
+inputs, required fields, enum choices and constraints. Model-specific help needs your API
+key and a connection; `akool-mh run --help` stays available offline.
 
 ## Command-line inputs
 
-Use **`-p/--prompt`** for the prompt and repeat **`-i/--input KEY=VALUE`** for other
-model inputs. Different models expose different fields, so use `schema MODEL_ID` to
-check their names, types and allowed values.
+> Dynamic model flags and model-specific help require **v0.2.0**. This release is being
+> prepared; v0.1.0 supports the `-i KEY=VALUE` alternative below.
 
-For example, **if the selected model supports `duration` and `aspect_ratio`**, you can
-preview all inputs directly from the terminal:
+Use each model's **exact input name as a long option**. The CLI reads the model's current
+Schema and converts values to the expected types before calling `price` or `run`.
+Place `MODEL_ID` before model-specific flags.
+
+For a model that advertises `prompt`, `duration` and `aspect_ratio`:
 
 ```bash
-akool-mh price "$MODEL_ID" \
-  -p 'A slow camera pan across a mountain lake' \
-  -i duration=5 \
-  -i aspect_ratio=16:9
+akool-mh run "$MODEL_ID" \
+  --prompt 'A slow camera pan across a mountain lake' \
+  --duration 5 \
+  --aspect_ratio 16:9 \
+  --wait
 ```
 
-To generate, replace `price` with `run` and add `--wait`. Parameter names such as
-`duration` are model-specific; they are not global flags like `--duration`.
+This starts a billable task. Use `price` instead of `run` and omit `--wait` to preview
+its price first. For a different model, discover its actual options with:
 
-| Input type | Example syntax | Parsed value |
+```bash
+akool-mh run "$MODEL_ID" --help
+```
+
+`-p` is just a shortcut for the model's `--prompt` field. Models without a `prompt`
+field use their own names, such as `--text`. Underscores and hyphens are not renamed:
+if the Schema says `aspect_ratio`, use `--aspect_ratio`, not `--aspect-ratio`.
+Unknown long options produce an error with a spelling suggestion when possible.
+
+| Schema type | Example syntax | Behavior |
 | --- | --- | --- |
-| Text | `-p 'A red ceramic cup'` | Sets the `prompt` string |
-| Model field | `-i aspect_ratio=16:9` | String `16:9` |
-| Number | `-i duration=5` | Number `5` |
-| Boolean | `-i enhance=true` | Boolean `true` |
-| Array | `-i 'image_urls=["https://example.com/a.png","https://example.com/b.png"]'` | Array of strings |
-| Numeric-looking string | `-i 'seed="123"'` | String `123`, rather than a number |
+| String | `--prompt 'A red ceramic cup'` | Preserves the text exactly |
+| Number / integer | `--duration 5` | Converts to a number and validates constraints |
+| Boolean | `--enhance` or `--enhance false` | Bare flag means `true`; explicit `true` / `false` is accepted |
+| Enum | `--aspect_ratio 16:9` | Accepts only advertised choices, preserving their types |
+| Array | `--image_urls https://example.com/a.png --image_urls https://example.com/b.png` | Collects values in order; a JSON array is also accepted |
+| Object | `--settings '{"seed":123}'` | Parses and validates a JSON object |
+| Numeric-looking string | `--voice_id 00123` | Keeps `00123` as a string when the Schema expects text |
 
 These field names illustrate syntax, not a universal set of model parameters. Quote values
-containing spaces or shell characters. `-i` parses valid JSON values and treats other values
-as strings, so ordinary text and numbers need no JSON document.
+containing spaces or shell characters. For values starting with a dash, use the equals form,
+such as `--prompt='--keep this text'`. Omitted fields are not filled with client-side defaults.
+
+### CLI options and the `-i` alternative
+
+CLI options such as `--wait`, `--json`, `--timeout` and `--request-timeout` keep their
+existing meanings. If a model has a field with a reserved name, use **`-i KEY=VALUE`**
+to pass that input without changing CLI behavior. For example, if the model has its own
+`timeout` input:
+
+```bash
+akool-mh run "$MODEL_ID" --prompt "$PROMPT" -i timeout=30 --wait --timeout 600
+```
+
+Here the model receives `timeout: 30`, while the CLI waits up to 600 seconds.
+Model-specific help identifies fields that need `-i`.
+
+You can still use `-i` for **all** model inputs, including `prompt`:
+
+```bash
+akool-mh price "$MODEL_ID" -i 'prompt=A red ceramic cup' -i duration=5
+```
+
+`-i` parses valid JSON values and otherwise uses a string. To force a numeric-looking
+string with this syntax, use `-i 'voice_id="00123"'`. It also supports unusual field
+names or additional inputs allowed by the Schema. Model-specific long flags only accept
+advertised fields, so typing mistakes cannot silently become new input keys.
 
 <details>
 <summary><strong>Optional: JSON files, nested inputs and stdin</strong></summary>
@@ -231,8 +272,10 @@ akool-mh price "$MODEL_ID" --input-file input.json -p 'A red ceramic cup'
 cat input.json | akool-mh price "$MODEL_ID" --input-file -
 ```
 
-Input precedence is **JSON file → `-p/--prompt` → repeated `-i KEY=VALUE`**; later sources
-override earlier fields. File input is optional for both `price` and `run`.
+Input precedence is **JSON file → model flags (including `-p`) → `-i KEY=VALUE`**.
+This priority applies regardless of the argument order. Repeated scalar model flags use
+the last value; repeated array model flags collect values. File input is optional for
+both `price` and `run`.
 
 </details>
 
@@ -373,7 +416,7 @@ uv build --out-dir dist
 .venv/bin/python scripts/build_binaries.py
 ```
 
-The native build bundles its SDK dependency and runtime, then checks seven commands
+The native build bundles its SDK dependency and runtime, then checks the business commands, dynamic inputs and model help
 against a fake local API. It does not call a real model or publish artifacts.
 See [CI.md](CI.md) for the CI entry point and [RELEASING.md](RELEASING.md) for native
 build targets and the release process.
