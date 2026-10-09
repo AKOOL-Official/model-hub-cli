@@ -23,9 +23,8 @@ Install with one command on **macOS or Linux**:
 curl -fsSL https://raw.githubusercontent.com/AKOOL-Official/model-hub-cli/main/install.sh | bash
 ```
 
-> [!NOTE]
-> The first GitHub Release is being prepared. The command becomes usable when the
-> [release assets](https://github.com/AKOOL-Official/model-hub-cli/releases) are published.
+Current release: [**v0.1.0**](https://github.com/AKOOL-Official/model-hub-cli/releases/tag/v0.1.0),
+with binaries for macOS and Linux on arm64 and amd64.
 
 The installer downloads the matching binary from **GitHub Releases**, verifies its
 SHA256 checksum and installs `akool-mh` to `~/.local/bin`. No Git, Python, Node.js or
