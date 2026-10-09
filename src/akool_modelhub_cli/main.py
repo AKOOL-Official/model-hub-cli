@@ -22,8 +22,6 @@ from akool_modelhub_sdk.errors import (
     TaskFailedError,
     TaskWaitTimeoutError,
 )
-from jsonschema import Draft202012Validator, FormatChecker
-from jsonschema.exceptions import ValidationError
 
 from akool_modelhub_cli.config import (
     DEFAULT_BASE_URL,
@@ -41,9 +39,10 @@ from akool_modelhub_cli.inputs import (
     model_inputs,
     parse_arguments,
     reject_constant,
+    validate_inputs,
 )
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 MAX_INPUT_BYTES = 1024 * 1024
 
 
@@ -62,6 +61,7 @@ class Operation:
     task_uuid: str | None = None
     model_id: str | None = None
     api_key: str | None = None
+    api_root: str | None = None
 
 
 def build_parser() -> Parser:
@@ -75,7 +75,10 @@ def build_parser() -> Parser:
     common.add_argument(
         "--base-url",
         default=argparse.SUPPRESS,
-        help="API root including /api/v1; overrides environment and local configuration",
+        help=(
+            "Service URL or gateway prefix (default: https://maas.akool.com); "
+            "/api/v1 is appended automatically when absent"
+        ),
     )
     common.add_argument(
         "--request-timeout",
@@ -254,6 +257,7 @@ async def login(args, operation: Operation) -> dict:
         or DEFAULT_BASE_URL
     )
     base = validate_base_url(base)
+    operation.api_root = base
     key = getpass.getpass("Model Hub API key: ", stream=sys.stderr)
     if not key or any(c in key for c in "\r\n"):
         raise UsageError("Invalid API key")
@@ -313,6 +317,7 @@ async def execute(args, operation: Operation) -> tuple[dict, int]:
                 raise UsageError("--webhook must be an HTTPS URL without credentials")
     configuration = resolve_config(base_url=args.base_url)
     operation.api_key = configuration.api_key
+    operation.api_root = configuration.base_url
     async with make_client(configuration, args) as client:
         if args.command == "status":
             capabilities = await verify_credentials(client)
@@ -360,16 +365,13 @@ async def execute(args, operation: Operation) -> tuple[dict, int]:
             )
             # -i is the final override, including reserved or otherwise unusual field names.
             inputs.update(overrides)
-            try:
-                Draft202012Validator(schema.input_schema, format_checker=FormatChecker()).validate(
-                    inputs
-                )
-            except ValidationError as exc:
-                path = ".".join(str(part) for part in exc.absolute_path) or "input"
-                # Schema validation messages can contain full input or embedded credentials.
-                raise UsageError(
-                    f"Invalid {path}: violates {exc.validator}; inspect akool-mh schema {args.model_id}"
-                ) from None
+            validate_inputs(
+                inputs,
+                schema.input_schema,
+                command=args.command,
+                model_id=args.model_id,
+                reserved=getattr(args, "reserved_inputs", ()),
+            )
             if args.command == "price":
                 price = await client.pricing.preview(args.model_id, input=inputs)
                 return {**price.model_dump(mode="json"), "binding": False}, 0
@@ -418,6 +420,16 @@ def error_output(exc: Exception, operation: Operation) -> tuple[dict, int]:
         code = 5
     task = getattr(exc, "task", None)
     data = task_output(task, operation.model_id) if task is not None else {}
+    message = str(exc)
+    if (
+        getattr(exc, "code", None) == "invalid_response"
+        and message == "Non-JSON Model Hub response"
+    ):
+        message = (
+            f"Non-JSON Model Hub response from {operation.api_root or 'the configured API root'}. "
+            "Check --base-url and the gateway's /api/v1 routing; a web page is not an API-key "
+            "validation response. No login credentials were saved by this failed operation."
+        )
     data.update(
         {
             "request_id": getattr(exc, "request_id", None) or operation.request_id,
@@ -426,11 +438,14 @@ def error_output(exc: Exception, operation: Operation) -> tuple[dict, int]:
             or operation.task_uuid,
             "error": {
                 "code": getattr(exc, "code", "invalid_arguments" if code == 2 else "client_error"),
-                "message": redact(str(exc), operation),
+                "message": redact(message, operation),
                 "status_code": getattr(exc, "status_code", None),
             },
         }
     )
+    if hasattr(exc, "missing_fields"):
+        data["error"]["missing_fields"] = exc.missing_fields
+        data["error"]["field_options"] = exc.field_options
     return data, code
 
 

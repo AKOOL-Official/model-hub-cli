@@ -2,7 +2,13 @@ import json
 
 import pytest
 
-from akool_modelhub_cli.config import read_config, resolve_config, validate_base_url, write_config
+from akool_modelhub_cli.config import (
+    DEFAULT_BASE_URL,
+    read_config,
+    resolve_config,
+    validate_base_url,
+    write_config,
+)
 
 
 def test_new_env_precedes_saved_config(monkeypatch, tmp_path):
@@ -73,3 +79,38 @@ def test_production_default_requires_only_the_modelhub_key(monkeypatch, tmp_path
     monkeypatch.delenv("AKOOL_MODELHUB_BASE_URL", raising=False)
     result = resolve_config(path=tmp_path / "missing/config.json")
     assert result.base_url == "https://maas.akool.com/api/v1"
+    assert DEFAULT_BASE_URL == "https://maas.akool.com"
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("https://maas-fat.akool.io", "https://maas-fat.akool.io/api/v1"),
+        ("https://maas-fat.akool.io/", "https://maas-fat.akool.io/api/v1"),
+        ("https://maas-fat.akool.io/api/v1/", "https://maas-fat.akool.io/api/v1"),
+        (
+            "https://landing-fat.akool.io/interface/maas-backend",
+            "https://landing-fat.akool.io/interface/maas-backend/api/v1",
+        ),
+        ("https://example.com/gateway/api/v1", "https://example.com/gateway/api/v1"),
+        ("http://127.0.0.1:8080", "http://127.0.0.1:8080/api/v1"),
+    ],
+)
+def test_base_url_normalizes_to_api_root_once(value, expected):
+    assert validate_base_url(value) == expected
+    assert validate_base_url(expected) == expected
+
+
+def test_endpoint_url_is_not_a_base_url():
+    with pytest.raises(ValueError, match="not an endpoint"):
+        validate_base_url("https://maas-fat.akool.io/api/v1/client/models")
+
+
+def test_saved_host_and_environment_gateway_both_normalize(monkeypatch, tmp_path):
+    path = tmp_path / "config.json"
+    write_config({"api_key": "sk-saved", "base_url": "https://maas-fat.akool.io"}, path)
+    monkeypatch.delenv("AKOOL_MODELHUB_API_KEY", raising=False)
+    monkeypatch.delenv("AKOOL_MODELHUB_BASE_URL", raising=False)
+    assert resolve_config(path=path).base_url == "https://maas-fat.akool.io/api/v1"
+    monkeypatch.setenv("AKOOL_MODELHUB_BASE_URL", "https://example.com/prefix")
+    assert resolve_config(path=path).base_url == "https://example.com/prefix/api/v1"

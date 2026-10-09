@@ -24,8 +24,8 @@ into native binaries. Do not maintain a second script in the Python source direc
 4. Commit and push the reviewed code to `main`, then create and push its version tag:
 
    ```bash
-   git tag v0.2.0
-   git push origin v0.2.0
+   git tag v0.2.1
+   git push origin v0.2.1
    ```
 
    Use a new version for subsequent releases. Never move a tag or overwrite an existing
@@ -89,3 +89,13 @@ binary to masquerade as another.
 
 The portal installation URL can point directly to the raw GitHub script after public
 verification: `VITE_MODEL_HUB_CLI_INSTALL_URL=https://raw.githubusercontent.com/AKOOL-Official/model-hub-cli/main/install.sh`.
+
+## Live API acceptance
+
+Native installation tests use a fake API and do not establish production service readiness.
+Before claiming an environment is ready, run authenticated read-only login/status,
+key-scoped model discovery, schema/help and history checks against its actual base URL.
+Confirm `/client/capabilities` and `/client/models` are deployed. Do not fall back to the
+public model catalog when the key-scoped endpoints are missing. Keep keys in a secret
+environment variable or a temporary login configuration; never include them in logs.
+Record incomplete checks and server errors separately from CLI test/build success.

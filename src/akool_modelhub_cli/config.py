@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 MAX_CONFIG_BYTES = 65536
-DEFAULT_BASE_URL = "https://maas.akool.com/api/v1"
+DEFAULT_BASE_URL = "https://maas.akool.com"
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,7 @@ def config_path() -> Path:
 
 
 def validate_base_url(value: str) -> str:
+    """Accept a service URL, gateway prefix or an already-complete v1 API root."""
     value = value.strip().rstrip("/")
     parsed = urlsplit(value)
     if (
@@ -36,9 +37,11 @@ def validate_base_url(value: str) -> str:
         or (parsed.scheme == "http" and parsed.hostname not in ("localhost", "127.0.0.1", "::1"))
     ):
         raise ValueError(
-            "Use an HTTPS API root without credentials, query or fragment (HTTP is allowed for localhost)."
+            "Use an HTTPS base URL without credentials, query or fragment (HTTP is allowed for localhost)."
         )
-    return value
+    if "/api/v1/" in parsed.path:
+        raise ValueError("Use the base URL or API root, not an endpoint after /api/v1")
+    return value if parsed.path.endswith("/api/v1") else value + "/api/v1"
 
 
 def read_config(path: Path | None = None) -> dict[str, str]:
@@ -76,7 +79,7 @@ def resolve_config(*, base_url: str | None = None, path: Path | None = None) -> 
     base = base or saved.get("base_url") or DEFAULT_BASE_URL
     if not key or not base:
         raise ValueError(
-            "Run akool-mh login or set AKOOL_MODELHUB_API_KEY and AKOOL_MODELHUB_BASE_URL"
+            "Run akool-mh login or set AKOOL_MODELHUB_API_KEY; AKOOL_MODELHUB_BASE_URL is optional"
         )
     if not key.strip() or any(c in key for c in "\r\n"):
         raise ValueError("Invalid API key format")

@@ -146,6 +146,7 @@ def main():
                 "Did you mean --duration",
             ),
             (["run", "smoke/model", "--prompt", "test", "--duration", "7", "--json"], 2, "enum"),
+            (["price", "smoke/model", "--json"], 2, "Missing required fields: prompt"),
         ]:
             result = subprocess.run(
                 [cli, *command], env=env, capture_output=True, text=True, timeout=30
@@ -158,7 +159,7 @@ def main():
         server.shutdown()
         server.server_close()
         worker.join(timeout=5)
-    print("Standalone CLI: 7 commands and 4 dynamic-input/help checks passed")
+    print("Standalone CLI: 7 commands and 5 input-validation/help checks passed")
 
 
 if __name__ == "__main__":

@@ -1,15 +1,17 @@
-## New in 0.2.0
+## New in 0.2.1
 
-- Pass model inputs directly as `--duration 5`, `--aspect_ratio 16:9` and other exact Schema field names.
-- Read model-specific options, required fields and choices with `akool-mh run MODEL_ID --help` or `price MODEL_ID --help`.
-- Convert numbers, booleans, arrays and objects using the current authorized model Schema. Preserve text and numeric-looking strings.
-- Repeat array flags to collect values; pass booleans as a bare flag or explicit `true`/`false`.
-- Reject misspelled long options and invalid values before submitting a generation task.
-- Keep `-p` as the prompt shortcut and `-i KEY=VALUE` for every input, including names reserved by CLI controls.
+- List all missing required input fields by name, with the corresponding CLI options, instead of `violates required`.
+- Report nested object and array paths such as `settings.steps` and `items[0].url`; return `error.missing_fields` and `error.field_options` for scripts.
+- Keep customer values out of validation errors and stop before price/task submission when required inputs are missing.
 
-Input precedence: JSON file → model flags (including `-p`) → `-i`. Model-specific help
-requires authentication and reads the Schema without creating a task; generic `run --help`
-still works offline. Long option abbreviations are no longer accepted.
+- Only the Model Hub API key is required; `base_url` is optional and defaults to `https://maas.akool.com`.
+- Accept domain-only URLs such as `https://maas-fat.akool.io`, gateway prefixes and existing `/api/v1` roots. Append `/api/v1` exactly once.
+- Explain non-JSON responses as API-root/routing errors rather than leaving users to suspect their key.
+- Keep previously saved full API roots compatible and preserve credentials after a failed login.
+
+Test FAT with `akool-mh login --base-url https://maas-fat.akool.io` and enter the FAT key
+at the hidden prompt. The service must have the matching client endpoints deployed;
+this CLI release does not deploy backend routes or repair server-side HTTP 500 errors.
 
 Upgrade an existing standalone installation with `akool-mh upgrade`.
 
@@ -36,5 +38,5 @@ Every binary passes business command, dynamic input, model help and installation
 a local fake API and disposable credentials. macOS binaries are ad-hoc signed, not Apple
 notarized. No real model generation is performed by the release tests.
 
-This is the 0.2.0 release; the CLI API may evolve. The SDK is bundled into the
+This is the 0.2.1 release; the CLI API may evolve. The SDK is bundled into the
 binary from the pinned revision recorded in `.github/workflows/release.yml`.

@@ -113,8 +113,9 @@ Model Hub API key:
 }
 ```
 
-`login` validates the key before saving it. The default API root is
-`https://maas.akool.com/api/v1`. Main-site AKOOL Client ID / Client Secret credentials
+`login` validates the key before saving it. Only the API key is required. The default
+base URL is `https://maas.akool.com`; the CLI appends `/api/v1` automatically and reports
+the resolved API root in its output. Main-site AKOOL Client ID / Client Secret credentials
 are separate.
 
 <details>
@@ -134,9 +135,25 @@ akool-mh status
 }
 ```
 
-`status` does not create a generation task. For a different environment, pass the exact
-API root supplied by your integration contact, including any gateway prefix and `/api/v1`:
-`akool-mh login --base-url https://YOUR_API_HOST/api/v1`.
+`status` does not create a generation task. For FAT, use:
+
+```bash
+akool-mh login --base-url https://maas-fat.akool.io
+akool-mh status
+```
+
+Enter the FAT API key at the hidden prompt. The CLI resolves the address to
+`https://maas-fat.akool.io/api/v1`. In v0.2.1+, domain-only URLs, gateway prefixes such
+as `https://landing-fat.akool.io/interface/maas-backend`, and complete API roots ending
+in `/api/v1` all work; the suffix is never added twice. The base URL is saved after a
+successful login, so it need not be repeated on subsequent commands.
+
+**Service readiness:** a valid key and a working login do not guarantee that every
+backend capability is deployed. The service must expose `/api/v1/client/capabilities`
+and `/api/v1/client/models` for the model workflow. If these return 404, the operator
+needs to deploy the matching backend or fix routing. A non-JSON response usually means
+the request reached a web page rather than the API; changing or repasting the key will
+not fix that routing problem.
 
 </details>
 
@@ -528,6 +545,36 @@ and may incur another charge. Automatic submit retries require backend idempoten
 
 ## Troubleshooting
 
+### Missing required inputs
+
+Pass the model's required fields when estimating a price or submitting a task. For example:
+
+```bash
+akool-mh price bytedance/seedance-v1.5-pro/image-to-video-spicy
+```
+
+**Example output in v0.2.1** — based on this model's FAT Schema, which requires `first_frame`:
+
+```json
+{
+  "request_id": null,
+  "task_uuid": null,
+  "error": {
+    "code": "invalid_arguments",
+    "message": "Missing required fields: first_frame. Provide --first_frame VALUE; see akool-mh price bytedance/seedance-v1.5-pro/image-to-video-spicy --help.",
+    "status_code": null,
+    "missing_fields": ["first_frame"],
+    "field_options": {"first_frame": "--first_frame VALUE"}
+  }
+}
+```
+
+Supply a server-accessible image URL as `--first_frame`, using a real input for your task.
+If several fields are missing, the CLI lists all of them. Nested fields include their
+paths, such as `settings.steps` or `items[0].url`; the suggested option updates the parent
+object/array rather than inventing unsupported dotted flags. CLI-reserved names use `-i`.
+Exit code `2` indicates local validation failure; no price or generation request is sent.
+
 ### A misspelled model parameter
 
 ```bash
@@ -557,6 +604,7 @@ Correct the option to `--duration`. To check valid fields and choices, use
 | --- | --- |
 | `akool-mh: command not found` | Add `~/.local/bin` to PATH; see [Install](#install) |
 | Installer returns a web page | Use the raw GitHub URL above, not a `/blob/` page |
+| `Non-JSON Model Hub response` | Check the resolved API root and gateway routing; HTML is not a key-validation result |
 | `401` / authentication failed | Check the Model Hub API Key, its expiry and the API root |
 | `403` / access denied | Check key permissions and IP restrictions |
 | Model missing / `404` | Search with the same key and use the exact returned model ID |
@@ -580,12 +628,12 @@ Correct the option to `--duration`. To check valid fields and choices, use
 | Option | Behavior |
 | --- | --- |
 | `--json` | Compact JSON output; works before or after the command |
-| `--base-url URL` | Override the API root, including any gateway prefix and `/api/v1` |
+| `--base-url URL` | Override the service URL or gateway prefix; `/api/v1` is appended when absent |
 | `--request-timeout SECONDS` | Limit each HTTP operation; default: 90 seconds |
 | `--timeout SECONDS` | Limit waiting with `run --wait` or `result --wait`; default: 600 seconds |
 
-API root priority: explicit flag → `AKOOL_MODELHUB_BASE_URL` → saved configuration →
-`https://maas.akool.com/api/v1`. The environment API key overrides the locally saved key.
+Base URL priority: explicit flag → `AKOOL_MODELHUB_BASE_URL` → saved configuration →
+`https://maas.akool.com`. The CLI resolves the API root by appending `/api/v1` once. The environment API key overrides the locally saved key.
 Local login uses `~/.akool/modelhub/config.json`, separate from the main AKOOL CLI's
 `~/.akool/config.json`. Keep credentials out of prompts, input JSON and issue reports.
 

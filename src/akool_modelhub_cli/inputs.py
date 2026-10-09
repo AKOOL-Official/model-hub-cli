@@ -6,6 +6,7 @@ import difflib
 import json
 import math
 import re
+import shlex
 from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
@@ -13,6 +14,62 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 class UsageError(ValueError):
     pass
+
+
+class MissingFieldsError(UsageError):
+    def __init__(self, paths, *, command, model_id, reserved):
+        self.missing_fields = [field_path(path) for path in paths]
+        self.field_options = {}
+        for path in paths:
+            root = path[0]
+            value = "JSON" if len(path) > 1 else "VALUE"
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", root) and root not in reserved:
+                option = f"--{root} {value}"
+            elif "=" not in root and not any(ord(c) < 32 for c in root):
+                option = "-i " + shlex.quote(f"{root}={value}")
+            else:
+                option = "--input-file FILE"
+            self.field_options[field_path(path)] = option
+        fields = ", ".join(self.missing_fields)
+        options = "; ".join(dict.fromkeys(self.field_options.values()))
+        super().__init__(
+            f"Missing required fields: {fields}. Provide {options}; "
+            f"see akool-mh {command} {shlex.quote(model_id)} --help."
+        )
+
+
+def field_path(parts):
+    """Unambiguous field paths, including array indices and literal dotted keys."""
+    result = ""
+    for part in parts:
+        if isinstance(part, int):
+            result += f"[{part}]"
+        elif re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", part):
+            result += ("." if result else "") + part
+        else:
+            result += "[" + json.dumps(part, ensure_ascii=False) + "]"
+    return result
+
+
+def validate_inputs(inputs, schema, *, command, model_id, reserved=()):
+    errors = list(validator(schema).iter_errors(inputs))
+    paths = []
+    for error in errors:
+        if error.validator == "required" and isinstance(error.instance, dict):
+            for field in error.validator_value:
+                if field not in error.instance:
+                    path = (*error.absolute_path, field)
+                    if path not in paths:
+                        paths.append(path)
+    if paths:
+        raise MissingFieldsError(paths, command=command, model_id=model_id, reserved=reserved)
+    if errors:
+        error = errors[0]
+        path = field_path(error.absolute_path) or "input"
+        # Do not echo jsonschema's message: it can include customer input or credentials.
+        raise UsageError(
+            f"Invalid {path}: violates {error.validator}; inspect akool-mh schema {model_id}"
+        )
 
 
 def reject_constant(value: str):
@@ -160,7 +217,9 @@ def parse_value(field: str, raw: str | None, schema: dict) -> Any:
             value = int(raw) if re.fullmatch(r"[+-]?\d+", raw) else float(raw)
     if isinstance(value, float) and not math.isfinite(value):
         raise UsageError(f"Invalid --{field}: expected a finite number")
-    error = next(check.iter_errors(value), None)
+    # Collect nested missing fields with the complete input rather than failing on
+    # the first object/array option before the other fields have been assembled.
+    error = next((e for e in check.iter_errors(value) if e.validator != "required"), None)
     if error is not None:
         expected = schema.get(
             "type", "one of the allowed values" if "enum" in schema else "the schema"
@@ -200,7 +259,14 @@ def model_inputs(values, schema: dict, *, overridden=()) -> dict[str, Any]:
             result[field] = parse_value(field, entries[-1], spec)
     # Validate arrays only after collection, so minItems/maxItems apply to the whole list.
     for field, value in result.items():
-        error = next(validator(properties[field]).iter_errors(value), None)
+        error = next(
+            (
+                e
+                for e in validator(properties[field]).iter_errors(value)
+                if e.validator != "required"
+            ),
+            None,
+        )
         if error is not None:
             raise UsageError(f"Invalid --{field}: violates {error.validator}")
     try:

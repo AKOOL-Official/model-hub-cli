@@ -275,6 +275,41 @@ def test_failed_login_does_not_overwrite_credentials(cli_env, monkeypatch, capsy
     assert config.read_config()["api_key"] == "sk-preserve"
 
 
+def test_login_accepts_a_bare_fat_domain(mock_api, cli_env, monkeypatch, capsys):
+    monkeypatch.setattr(cli.sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *args, **kwargs: "sk-fat-example")
+    assert cli.main(["login", "--base-url", "https://maas-fat.akool.io", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["base_url"] == "https://maas-fat.akool.io/api/v1"
+    assert mock_api[0][0].url == "https://maas-fat.akool.io/api/v1/client/capabilities"
+    assert json.loads(cli_env.read_text())["base_url"] == data["base_url"]
+
+
+def test_non_json_login_explains_routing_and_preserves_saved_key(cli_env, monkeypatch, capsys):
+    config.write_config({"api_key": "sk-preserve", "base_url": "https://example.invalid/api/v1"})
+    monkeypatch.setattr(cli.sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *args, **kwargs: "sk-rejected")
+    monkeypatch.setattr(
+        cli,
+        "make_client",
+        lambda cfg, args: AsyncModelHub(
+            api_key=cfg.api_key,
+            base_url=cfg.base_url,
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(200, text="<!DOCTYPE html><html>portal</html>")
+            ),
+        ),
+    )
+    assert cli.main(["login", "--base-url", "https://maas.akool.com", "--json"]) == 1
+    output = capsys.readouterr().out
+    error = json.loads(output)["error"]
+    assert error["code"] == "invalid_response"
+    assert "https://maas.akool.com/api/v1" in error["message"]
+    assert "gateway" in error["message"] and "--base-url" in error["message"]
+    assert "sk-rejected" not in output and "portal" not in output
+    assert config.read_config()["api_key"] == "sk-preserve"
+
+
 @pytest.mark.parametrize("command", ["run", "price"])
 def test_model_long_options_preserve_types_and_cli_controls(command, mock_api, capsys):
     argv = [
@@ -622,3 +657,147 @@ def test_overflowing_numeric_inputs_never_submit(field, value, mock_api, capsys)
     assert cli.main(["run", "vendor/model", "-p", "scene", f"--{field}", value, "--json"]) == 2
     assert "finite" in capsys.readouterr().out
     assert not any(r.method == "POST" for r in mock_api[0])
+
+
+@pytest.mark.parametrize("command", ["price", "run"])
+def test_all_missing_required_fields_and_options_are_reported(command, mock_api, capsys):
+    mock_api[1].parameters.extend(
+        [
+            {"key": "image_url", "type": "image_upload", "required": True},
+            {"key": "timeout", "type": "number", "required": True},
+        ]
+    )
+    assert cli.main([command, "vendor/model", "--json"]) == 2
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "invalid_arguments"
+    assert error["missing_fields"] == ["prompt", "image_url", "timeout"]
+    assert error["field_options"] == {
+        "prompt": "--prompt VALUE",
+        "image_url": "--image_url VALUE",
+        "timeout": "-i timeout=VALUE",
+    }
+    assert "Missing required fields: prompt, image_url, timeout" in error["message"]
+    assert f"akool-mh {command} vendor/model --help" in error["message"]
+    assert all(r.method == "GET" for r in mock_api[0])
+
+
+def test_only_absent_fields_are_reported_without_echoing_input(mock_api, capsys):
+    mock_api[1].parameters.append({"key": "image_url", "type": "image_upload", "required": True})
+    assert (
+        cli.main(["price", "vendor/model", "--prompt", "private prompt sk-cli-secret", "--json"])
+        == 2
+    )
+    output = capsys.readouterr().out
+    error = json.loads(output)["error"]
+    assert error["missing_fields"] == ["image_url"]
+    assert "private prompt" not in output and "sk-cli-secret" not in output
+    assert not any(r.method == "POST" for r in mock_api[0])
+
+
+@pytest.mark.parametrize("source", ["flag", "input", "file"])
+def test_nested_required_fields_are_aggregated_with_root_fields(source, mock_api, capsys, tmp_path):
+    mock_api[1].parameters[-1]["object_properties"].append(
+        {"key": "seed", "type": "number", "required": True}
+    )
+    if source == "file":
+        path = tmp_path / "input.json"
+        path.write_text('{"settings":{}}')
+        args = ["--input-file", str(path)]
+    elif source == "input":
+        args = ["-i", "settings={}"]
+    else:
+        args = ["--settings", "{}"]
+    assert cli.main(["price", "vendor/model", *args, "--json"]) == 2
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert set(error["missing_fields"]) == {"prompt", "settings.steps", "settings.seed"}
+    assert len(error["missing_fields"]) == 3
+    assert error["field_options"]["settings.steps"] == "--settings JSON"
+    assert error["field_options"]["settings.seed"] == "--settings JSON"
+    assert "--settings.steps" not in error["message"]
+    assert not any(r.method == "POST" for r in mock_api[0])
+
+
+def test_array_object_fields_include_indices(mock_api, capsys):
+    mock_api[1].parameters.append(
+        {
+            "key": "items",
+            "type": "array",
+            "items_type": "object",
+            "object_properties": [
+                {"key": "url", "type": "text", "required": True},
+                {"key": "kind", "type": "text", "required": True},
+            ],
+        }
+    )
+    assert (
+        cli.main(
+            [
+                "run",
+                "vendor/model",
+                "-p",
+                "scene",
+                "--items",
+                '[{}, {"url":"private-url"}]',
+                "--json",
+            ]
+        )
+        == 2
+    )
+    output = capsys.readouterr().out
+    error = json.loads(output)["error"]
+    assert error["missing_fields"] == ["items[0].url", "items[0].kind", "items[1].kind"]
+    assert set(error["field_options"].values()) == {"--items JSON"}
+    assert "private-url" not in output
+    assert not any(r.method == "POST" for r in mock_api[0])
+
+
+def test_falsy_values_and_absent_optional_objects_are_not_missing(mock_api, capsys):
+    mock_api[1].parameters = [
+        {"key": "prompt", "type": "text", "required": True},
+        {"key": "enabled", "type": "boolean", "required": True},
+        {"key": "seed", "type": "number", "required": True},
+        {
+            "key": "optional",
+            "type": "object",
+            "object_properties": [
+                {"key": "child", "type": "text", "required": True},
+            ],
+        },
+    ]
+    assert (
+        cli.main(["price", "vendor/model", "--prompt=", "--enabled=false", "--seed", "0", "--json"])
+        == 0
+    )
+    assert "missing_fields" not in capsys.readouterr().out
+    assert sum(r.method == "POST" for r in mock_api[0]) == 1
+
+
+def test_missing_paths_distinguish_literal_dots_and_nested_fields():
+    from akool_modelhub_cli.inputs import MissingFieldsError, validate_inputs
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "settings": {"type": "object", "required": ["seed.name"]},
+        },
+        "required": ["image.url", "bad=name"],
+    }
+    with pytest.raises(MissingFieldsError) as caught:
+        validate_inputs({"settings": {}}, schema, command="price", model_id="example/model")
+    error = caught.value
+    assert error.missing_fields == ['settings["seed.name"]', '["image.url"]', '["bad=name"]']
+    assert error.field_options['["image.url"]'] == "--image.url VALUE"
+    assert error.field_options['["bad=name"]'] == "--input-file FILE"
+
+
+def test_alternative_schema_branches_do_not_claim_all_alternatives_are_required():
+    from akool_modelhub_cli.inputs import UsageError, validate_inputs
+
+    with pytest.raises(UsageError, match="anyOf") as caught:
+        validate_inputs(
+            {},
+            {"anyOf": [{"required": ["image"]}, {"required": ["video"]}]},
+            command="price",
+            model_id="example/model",
+        )
+    assert not hasattr(caught.value, "missing_fields")
