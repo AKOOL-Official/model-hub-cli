@@ -4,7 +4,7 @@
 
 **Discover models. Preview pricing. Run AI tasks from your terminal.**
 
-[![Version: 0.1.0 preview](https://img.shields.io/badge/version-0.1.0_preview-2563eb)](#install)
+[![Version: 0.2.0 preview](https://img.shields.io/badge/version-0.2.0_preview-2563eb)](#install)
 [![License: MIT](https://img.shields.io/badge/license-MIT-16a34a)](LICENSE)
 
 [Install](#install) · [Quick start](#quick-start) · [Commands](#command-reference) · [Troubleshooting](#troubleshooting)
@@ -23,7 +23,7 @@ Install with one command on **macOS or Linux**:
 curl -fsSL https://raw.githubusercontent.com/AKOOL-Official/model-hub-cli/main/install.sh | bash
 ```
 
-Current release: [**v0.1.0**](https://github.com/AKOOL-Official/model-hub-cli/releases/tag/v0.1.0),
+Current release: [**v0.2.0**](https://github.com/AKOOL-Official/model-hub-cli/releases/tag/v0.2.0),
 with binaries for macOS and Linux on arm64 and amd64.
 
 The installer downloads the matching binary from **GitHub Releases**, verifies its
@@ -58,7 +58,7 @@ signed, not Apple notarized.
 **Install a specific version:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AKOOL-Official/model-hub-cli/main/install.sh | bash -s -- --version 0.1.0
+curl -fsSL https://raw.githubusercontent.com/AKOOL-Official/model-hub-cli/main/install.sh | bash -s -- --version 0.2.0
 ```
 
 **Choose an installation directory:**
@@ -187,8 +187,8 @@ key and a connection; `akool-mh run --help` stays available offline.
 
 ## Command-line inputs
 
-> Dynamic model flags and model-specific help require **v0.2.0**. This release is being
-> prepared; v0.1.0 supports the `-i KEY=VALUE` alternative below.
+> Dynamic model flags and model-specific help are available in **v0.2.0**.
+> Run `akool-mh upgrade` to update an existing standalone installation.
 
 Use each model's **exact input name as a long option**. The CLI reads the model's current
 Schema and converts values to the expected types before calling `price` or `run`.
