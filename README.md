@@ -123,43 +123,38 @@ akool-mh schema "$MODEL_ID"
 Results include only models your key is allowed to use. You can also search with another
 keyword or run `akool-mh models` to browse.
 
-### 3. Prepare inputs and preview the price
+### 3. Pass your inputs and preview the price
 
-Create `input.json` using the model's **`input_schema`** and examples. For a model that
-accepts `prompt`, a starting file might look like this:
-
-```json
-{
-  "prompt": "A studio photograph of a ceramic coffee cup on a wooden table"
-}
-```
-
-Add any other required fields shown by the schema, then check the estimate:
+Pass inputs directly on the command line. For a model whose only required input is
+`prompt`, preview the price like this:
 
 ```bash
-akool-mh price "$MODEL_ID" --input-file input.json
+PROMPT='A studio photograph of a ceramic coffee cup on a wooden table'
+akool-mh price "$MODEL_ID" --prompt "$PROMPT"
 ```
+
+Use `-p` as a shorter spelling of `--prompt`. Add other fields with `-i KEY=VALUE`,
+using the exact names and allowed values from the model's schema. No input file is required.
 
 `price` does not generate media. The returned price is an estimate, not a binding charge.
 For media inputs, use server-accessible HTTPS URLs; local paths and `@file` do not upload files.
 
-### 4. Submit once
+### 4. Generate and wait for the result
 
-The next command starts a **billable generation task**. Replace `YOUR_UNIQUE_REQUEST_ID`
-with a new UUID or unique identifier of at most 36 characters. Save it before submitting:
+The next command starts one **billable generation task** with the same inputs:
 
 ```bash
-REQUEST_ID='YOUR_UNIQUE_REQUEST_ID'
-printf '%s\n' "$REQUEST_ID" > request-id.txt
-akool-mh run "$MODEL_ID" --input-file input.json --request-id "$REQUEST_ID"
+akool-mh run "$MODEL_ID" --prompt "$PROMPT" --wait
 ```
 
-`run` returns immediately with a `task_uuid`; the task may still be pending. Keep both
-the ID and `input.json` until the task finishes. Use a new request ID for each new generation.
+If you added `-i` fields to the price preview, include those same fields here.
+The CLI generates a unique request ID automatically and prints `Task ID: ...` before
+submission. Keep that ID for recovery. `--wait` waits for the result; omit it to return
+immediately after submission and query the task later.
 
-### 5. Get the result
+### 5. Check or resume an existing task
 
-Replace the placeholder with the `task_uuid` returned by `run`:
+If you submitted without waiting or stopped waiting, use the same task ID:
 
 ```bash
 TASK_ID='TASK_UUID_FROM_RUN'
@@ -178,8 +173,8 @@ Run `result` again with the same ID to continue.
 | `akool-mh status` | Check authentication and API connectivity |
 | `akool-mh models [query]` | Search the models available to your key |
 | `akool-mh schema MODEL_ID` | Inspect input/output schemas and examples |
-| `akool-mh price MODEL_ID --input-file input.json` | Estimate the price without generation |
-| `akool-mh run MODEL_ID --input-file input.json` | Submit a generation task; add `--wait` to wait |
+| `akool-mh price MODEL_ID -p 'Your prompt'` | Estimate the price; add model fields with `-i KEY=VALUE` |
+| `akool-mh run MODEL_ID -p 'Your prompt' --wait` | Generate and wait; omit `--wait` to query later |
 | `akool-mh result TASK_ID` | Read an existing task; add `--wait` to keep waiting |
 | `akool-mh history --limit 10` | List account task history across API keys |
 | `akool-mh logout` | Remove the locally saved key |
@@ -187,21 +182,62 @@ Run `result` again with the same ID to continue.
 
 Every command accepts `--help`. Use `akool-mh --version` to check your installed version.
 
-<details>
-<summary><strong>Input shortcuts and global options</strong></summary>
+## Command-line inputs
 
-Use a JSON file for repeatable requests, or supply individual fields when they match the
-selected model's schema. These examples only preview the price:
+Use **`-p/--prompt`** for the prompt and repeat **`-i/--input KEY=VALUE`** for other
+model inputs. Different models expose different fields, so use `schema MODEL_ID` to
+check their names, types and allowed values.
+
+For example, **if the selected model supports `duration` and `aspect_ratio`**, you can
+preview all inputs directly from the terminal:
 
 ```bash
-akool-mh price "$MODEL_ID" -p 'A studio photograph of a ceramic cup'
-akool-mh price "$MODEL_ID" --input-file input.json -i 'prompt="A red ceramic cup"'
+akool-mh price "$MODEL_ID" \
+  -p 'A slow camera pan across a mountain lake' \
+  -i duration=5 \
+  -i aspect_ratio=16:9
+```
+
+To generate, replace `price` with `run` and add `--wait`. Parameter names such as
+`duration` are model-specific; they are not global flags like `--duration`.
+
+| Input type | Example syntax | Parsed value |
+| --- | --- | --- |
+| Text | `-p 'A red ceramic cup'` | Sets the `prompt` string |
+| Model field | `-i aspect_ratio=16:9` | String `16:9` |
+| Number | `-i duration=5` | Number `5` |
+| Boolean | `-i enhance=true` | Boolean `true` |
+| Array | `-i 'image_urls=["https://example.com/a.png","https://example.com/b.png"]'` | Array of strings |
+| Numeric-looking string | `-i 'seed="123"'` | String `123`, rather than a number |
+
+These field names illustrate syntax, not a universal set of model parameters. Quote values
+containing spaces or shell characters. `-i` parses valid JSON values and treats other values
+as strings, so ordinary text and numbers need no JSON document.
+
+<details>
+<summary><strong>Optional: JSON files, nested inputs and stdin</strong></summary>
+
+For large nested objects, long arrays or saved inputs you reuse across runs, a JSON file
+can be easier to manage. Populate `input.json` with fields from the chosen model's schema:
+
+```bash
+akool-mh price "$MODEL_ID" --input-file input.json
+```
+
+You can override selected fields from the command line or pipe input from another program:
+
+```bash
+akool-mh price "$MODEL_ID" --input-file input.json -p 'A red ceramic cup'
 cat input.json | akool-mh price "$MODEL_ID" --input-file -
 ```
 
 Input precedence is **JSON file → `-p/--prompt` → repeated `-i KEY=VALUE`**; later sources
-override earlier fields. `-i` parses valid JSON values and otherwise treats them as strings.
-Field names must match the model's schema exactly.
+override earlier fields. File input is optional for both `price` and `run`.
+
+</details>
+
+<details>
+<summary><strong>Global options</strong></summary>
 
 | Option | Behavior |
 | --- | --- |
@@ -226,6 +262,19 @@ akool-mh history --limit 10 --json > history.json
 
 With `--json`, stdout contains one JSON result; diagnostics and task-ID notices go to stderr.
 Check the exit code as well as task `status`: a successful submission can still be pending.
+`--json` controls **output formatting** and does not require JSON input.
+
+For automated submissions that must survive a process failure, create and persist a unique
+request ID in your job records **before** calling `run`. Pass it with `--request-id`:
+
+```bash
+# Replace with the unique ID saved for this operation (at most 36 characters).
+REQUEST_ID='YOUR_SAVED_UNIQUE_REQUEST_ID'
+akool-mh run "$MODEL_ID" -p "$PROMPT" --request-id "$REQUEST_ID" --json
+```
+
+Use a new ID for a new generation. Recovery of the same operation must keep the original
+ID, model and exact input values.
 
 <details>
 <summary><strong>Exit codes</strong></summary>
@@ -258,12 +307,13 @@ Check the exit code as well as task `status`: a successful submission can still 
 
 ### Recover an interrupted submission
 
-If `run` reports an unknown outcome, **query the original request ID before submitting
-anything new**. It is also the task ID used for recovery:
+If `run` reports an unknown outcome, **query the original task ID before submitting
+anything new**. Use the `Task ID: ...` printed before submission, the `task_uuid` in the
+error response, or the explicit `--request-id` saved for that operation:
 
 ```bash
-REQUEST_ID="$(cat request-id.txt)"
-akool-mh result "$REQUEST_ID" --wait --timeout 600
+TASK_ID='YOUR_ORIGINAL_TASK_ID'
+akool-mh result "$TASK_ID" --wait --timeout 600
 ```
 
 If replay is needed, use the **same request ID, model and unchanged input**. A fresh ID
