@@ -11,13 +11,14 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[1] / "src/akool_modelhub_cli/install.sh"
+SCRIPT = Path(__file__).resolve().parents[1] / "install.sh"
 
 
-@pytest.fixture
-def release_site(tmp_path):
+@pytest.fixture(params=["static", "github"])
+def release_site(tmp_path, request):
+    layout = request.param
     site = tmp_path / "site"
-    release = site / "releases/0.1.0"
+    release = site / ("download/v0.1.0" if layout == "github" else "releases/0.1.0")
     release.mkdir(parents=True)
     arch = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "amd64"}[platform.machine()]
     asset = release / f"akool-mh-{platform.system().lower()}-{arch}"
@@ -26,6 +27,9 @@ def release_site(tmp_path):
     sums = release / "SHA256SUMS"
     sums.write_text(f"{hashlib.sha256(payload).hexdigest()}  {asset.name}\n")
     (site / "latest.txt").write_text("0.1.0\n")
+    if layout == "github":
+        (site / "latest/download").mkdir(parents=True)
+        (site / "latest/download/version.txt").symlink_to(site / "latest.txt")
 
     class QuietHandler(SimpleHTTPRequestHandler):
         def log_message(self, *_):
@@ -40,6 +44,7 @@ def release_site(tmp_path):
     for key in ("AKOOL_MH_INSTALL_DIR", "AKOOL_MH_VERSION"):
         env.pop(key, None)
     env["AKOOL_MH_DOWNLOAD_BASE_URL"] = f"http://127.0.0.1:{server.server_port}"
+    env["AKOOL_MH_DOWNLOAD_LAYOUT"] = layout
     target = home / ".local/bin/akool-mh"
 
     def run(*args):
@@ -120,6 +125,7 @@ def test_upgrade_uses_same_installer_without_credentials(release_site, monkeypat
     monkeypatch.setattr(upgrade.sys, "frozen", True, raising=False)
     monkeypatch.setattr(upgrade.sys, "executable", str(target))
     monkeypatch.setenv("AKOOL_MH_DOWNLOAD_BASE_URL", env["AKOOL_MH_DOWNLOAD_BASE_URL"])
+    monkeypatch.setenv("AKOOL_MH_DOWNLOAD_LAYOUT", env["AKOOL_MH_DOWNLOAD_LAYOUT"])
     monkeypatch.setenv("NO_PROXY", "127.0.0.1")
     monkeypatch.delenv("AKOOL_MODELHUB_API_KEY", raising=False)
     assert cli.main(["upgrade", "--target-version", "0.1.0", "--json"]) == 0

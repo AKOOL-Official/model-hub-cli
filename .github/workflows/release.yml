@@ -1,0 +1,146 @@
+name: Build and release CLI
+
+on:
+  pull_request:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sdk:
+    name: Build pinned Python SDK wheel
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Validate release version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os, tomllib
+          from pathlib import Path
+          version = tomllib.loads(Path('pyproject.toml').read_text())['project']['version']
+          if os.environ['REF_TYPE'] == 'tag':
+              assert os.environ['REF_NAME'] == 'v' + version, 'Tag must match package version'
+          PY
+      # Bootstrap an unpublished SDK from an immutable source revision. All consumers
+      # install the resulting versioned wheel; no SDK source is copied into this repo.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: AKOOL-Official/model-hub-sdk-python
+          ref: 9c8cbaea4481d5ab10b5e7328be66c942b38d2e8
+          path: sdk-source
+          persist-credentials: false
+      - run: python -m pip install uv==0.8.12
+      - name: Build and test SDK
+        run: |
+          uv build --directory sdk-source --out-dir dist
+          uv venv --python 3.12 sdk-source/.venv
+          uv pip install --python sdk-source/.venv/bin/python --group sdk-source/pyproject.toml:dev sdk-source/dist/*.whl
+          cd sdk-source
+          .venv/bin/python -m pytest -q
+          .venv/bin/ruff check src tests
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: python-sdk
+          path: sdk-source/dist/*.whl
+          if-no-files-found: error
+          retention-days: 14
+
+  native:
+    name: Build ${{ matrix.platform }}
+    needs: sdk
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            platform: darwin-arm64
+          - runner: macos-15-intel
+            platform: darwin-amd64
+          - runner: ubuntu-22.04
+            platform: linux-amd64
+          - runner: ubuntu-22.04-arm
+            platform: linux-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install uv==0.8.12
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: python-sdk
+          path: sdk-wheel
+      - name: Install CLI and run tests
+        run: |
+          uv venv --python 3.12
+          uv pip install --python .venv/bin/python . --group dev sdk-wheel/*.whl
+          .venv/bin/python -m pytest -q
+          .venv/bin/ruff check src tests scripts
+          bash -n install.sh
+      - name: Build and verify native binary
+        env:
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+        run: |
+          .venv/bin/python scripts/build_binaries.py
+          .venv/bin/python scripts/assemble_release.py dist/release --layout github --platforms "$RELEASE_PLATFORM" --output dist/github-test
+          .venv/bin/python scripts/smoke_install.py dist/github-test --layout github
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: platform-${{ matrix.platform }}
+          path: dist/release/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish complete GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    needs: native
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: platform-*
+          path: artifacts
+      - name: Verify checksums and assemble all platforms
+        run: python scripts/assemble_release.py artifacts --layout github --output dist/github
+      - name: Upload assets to a draft, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to overwrite published assets.' >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" dist/github/* --verify-tag --draft --title "AKOOL Model Hub CLI $RELEASE_TAG" --notes-file .github/RELEASE_NOTES.md
+          gh release edit "$RELEASE_TAG" --draft=false --latest

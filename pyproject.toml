@@ -19,6 +19,9 @@ Issues = "https://github.com/AKOOL-Official/model-hub-cli/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/akool_modelhub_cli"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"install.sh" = "akool_modelhub_cli/install.sh"
+
 [project.scripts]
 akool-mh = "akool_modelhub_cli.main:entrypoint"
 

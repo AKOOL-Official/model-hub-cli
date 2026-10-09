@@ -5,21 +5,23 @@ set -euo pipefail
 install_modelhub() (
   set -euo pipefail
   fail() { printf 'akool-mh: %s\n' "$*" >&2; exit 1; }
-  base_url="${AKOOL_MH_DOWNLOAD_BASE_URL:-https://maas.akool.com/cli}"
+  base_url="${AKOOL_MH_DOWNLOAD_BASE_URL:-https://github.com/AKOOL-Official/model-hub-cli/releases}"
+  layout="${AKOOL_MH_DOWNLOAD_LAYOUT:-}"
   version="${AKOOL_MH_VERSION:-}"
   install_dir="${AKOOL_MH_INSTALL_DIR:-$HOME/.local/bin}"
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --version|--install-dir|--base-url)
+      --version|--install-dir|--base-url|--layout)
         [ "$#" -ge 2 ] || fail "Missing value for $1"
         case "$1" in
           --version) version="$2" ;;
           --install-dir) install_dir="$2" ;;
           --base-url) base_url="$2" ;;
+          --layout) layout="$2" ;;
         esac
         shift 2 ;;
       --help|-h)
-        printf '%s\n' 'Usage: install.sh [--version VERSION] [--install-dir DIR] [--base-url HTTPS_URL]'
+        printf '%s\n' 'Usage: install.sh [--version VERSION] [--install-dir DIR] [--base-url HTTPS_URL] [--layout github|static]'
         exit 0 ;;
       *) fail "Unknown option: $1" ;;
     esac
@@ -27,6 +29,13 @@ install_modelhub() (
   command -v curl >/dev/null || fail 'curl is required'
   command -v shasum >/dev/null || command -v sha256sum >/dev/null || fail 'SHA256 utility is required'
   base_url="${base_url%/}"
+  if [ -z "$layout" ]; then
+    case "$base_url" in
+      https://github.com/*/releases) layout=github ;;
+      *) layout=static ;;
+    esac
+  fi
+  case "$layout" in github|static) ;; *) fail 'Layout must be github or static' ;; esac
   protocol='=https'
   if [[ "$base_url" =~ ^http://(127\.0\.0\.1|localhost)(:[0-9]+)?(/[a-zA-Z0-9._~/-]*)?$ ]]; then
     protocol='=http' # Local release smoke tests only.
@@ -56,13 +65,22 @@ install_modelhub() (
       --connect-timeout 15 --max-time 300 --retry 2 --output "$2" "$1"
   }
   if [ -z "$version" ]; then
-    fetch "$base_url/latest.txt" "$staging/latest.txt"
+    if [ "$layout" = github ]; then
+      latest_url="$base_url/latest/download/version.txt"
+    else
+      latest_url="$base_url/latest.txt"
+    fi
+    fetch "$latest_url" "$staging/latest.txt" || fail 'No downloadable release found; check the repository Releases page'
     [ "$(wc -c < "$staging/latest.txt")" -le 128 ] || fail 'Invalid release version file'
     version="$(cat "$staging/latest.txt")"
   fi
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*)?$ ]] || fail 'Invalid release version'
   asset="akool-mh-$os-$arch"
-  release="$base_url/releases/$version"
+  if [ "$layout" = github ]; then
+    release="$base_url/download/v$version"
+  else
+    release="$base_url/releases/$version"
+  fi
   fetch "$release/SHA256SUMS" "$staging/SHA256SUMS"
   expected="$(awk -v asset="$asset" '$2 == asset { print $1 }' "$staging/SHA256SUMS")"
   [[ "$expected" =~ ^[a-fA-F0-9]{64}$ ]] || fail 'Missing or ambiguous checksum for this platform'

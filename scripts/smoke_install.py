@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -15,9 +16,19 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("site", type=Path, help="Output directory from assemble_release.py")
+    parser.add_argument("--layout", choices=("static", "github"), default="static")
     args = parser.parse_args()
     site = args.site.resolve()
-    version = (site / "latest.txt").read_text().strip()
+    version_file = "version.txt" if args.layout == "github" else "latest.txt"
+    version = (site / version_file).read_text().strip()
+    serving = tempfile.TemporaryDirectory(prefix="akool-mh-release-site-")
+    if args.layout == "github":
+        original = site
+        site = Path(serving.name)
+        shutil.copytree(original, site / "download" / f"v{version}")
+        (site / "latest/download").mkdir(parents=True)
+        shutil.copy2(original / "version.txt", site / "latest/download/version.txt")
+        shutil.copy2(original / "install.sh", site / "install.sh")
 
     class QuietHandler(SimpleHTTPRequestHandler):
         def log_message(self, *_):
@@ -41,6 +52,7 @@ def main():
                 "no_proxy": "127.0.0.1",
                 "AKOOL_MH_DOWNLOAD_BASE_URL": base,
                 "AKOOL_MH_INSTALL_DIR": str(install_dir),
+                "AKOOL_MH_DOWNLOAD_LAYOUT": args.layout,
             }
             for name in ("AKOOL_MODELHUB_API_KEY", "AKOOL_MODELHUB_BASE_URL", "AKOOL_MH_VERSION"):
                 env.pop(name, None)
@@ -93,6 +105,7 @@ def main():
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+        serving.cleanup()
 
 
 if __name__ == "__main__":

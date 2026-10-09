@@ -1,12 +1,18 @@
-# Independent CI entry point
+# Build and release CI
 
-Run `bash scripts/ci.sh` from a clean checkout. No sibling source repository is needed.
-The script installs development dependencies, runs checks and builds release artifacts;
-it never uploads packages or deploys a service. The repository is hosted under `AKOOL-Official` on GitHub.
-GitHub Actions is not yet configured; this script is the portable CI entry point. Each repository has independent version tags.
+[`.github/workflows/release.yml`](.github/workflows/release.yml) runs on pull requests,
+version tags and manual dispatch. It builds a pinned Python SDK wheel, then tests and
+builds native CLI binaries on macOS arm64/amd64 and Linux arm64/amd64.
 
-Python projects require Python 3.11+ and uv (CI defaults to Python 3.12).
-CLI and MCP use the exact SDK version in pyproject.toml. Before registry publication,
-set `MODELHUB_SDK_WHEEL` to an absolute path of its downloaded wheel release artifact.
-Once published, the normal package index resolves it. Never use a sibling editable SDK.
-Run the native build on macOS arm64/amd64 and Linux arm64/amd64; see RELEASING.md.
+Each native job verifies the CLI's seven commands plus installation, self-upgrade,
+failed-upgrade preservation and unchanged credentials. Checks use only a local fake API.
+Artifacts are retained for 14 days. Actions are pinned to immutable revisions.
+
+Only a pushed `vVERSION` tag matching `pyproject.toml` publishes a GitHub Release, and
+only after all four platform jobs pass. Build jobs have read-only repository access;
+the final publish job alone has `contents: write`. See [RELEASING.md](RELEASING.md).
+
+For local package checks, run `bash scripts/ci.sh`. It requires Python 3.11+ and uv
+(defaults to Python 3.12), installs the CLI as a package, tests it and builds its wheel.
+Before the SDK's first registry release, set `MODELHUB_SDK_WHEEL` to the absolute path
+of the matching wheel. This local entry point never publishes or deploys anything.

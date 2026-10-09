@@ -1,4 +1,4 @@
-"""Assemble verified platform artifacts into a static download site; never publishes."""
+"""Assemble verified binaries for GitHub Releases or a static mirror; never publishes."""
 
 import argparse
 import hashlib
@@ -18,6 +18,7 @@ def main():
     )
     parser.add_argument("--output", type=Path, default=ROOT / "dist/site")
     parser.add_argument("--platforms", nargs="+", choices=PLATFORMS, default=PLATFORMS)
+    parser.add_argument("--layout", choices=("static", "github"), default="static")
     args = parser.parse_args()
     version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
     assets = []
@@ -36,7 +37,7 @@ def main():
         ):
             raise SystemExit(f"Artifact checksum mismatch: {name}")
         assets.append((asset, digest))
-    release = args.output / "releases" / version
+    release = args.output if args.layout == "github" else args.output / "releases" / version
     if release.exists():
         raise SystemExit("Release output already exists; use an empty output directory")
     release.mkdir(parents=True)
@@ -45,11 +46,11 @@ def main():
     (release / "SHA256SUMS").write_text(
         "".join(f"{digest}  {asset.name}\n" for asset, digest in assets)
     )
-    shutil.copy2(ROOT / "src/akool_modelhub_cli/install.sh", args.output / "install.sh")
-    (args.output / "latest.txt").write_text(version + "\n")
-    print(
-        f"Static site prepared at {args.output}; upload releases first, then install.sh and latest.txt"
-    )
+    shutil.copy2(ROOT / "install.sh", args.output / "install.sh")
+    shutil.copy2(ROOT / "LICENSE", args.output / "LICENSE")
+    version_file = "version.txt" if args.layout == "github" else "latest.txt"
+    (args.output / version_file).write_text(version + "\n")
+    print(f"{args.layout} release prepared at {args.output}")
 
 
 if __name__ == "__main__":

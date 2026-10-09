@@ -1,46 +1,92 @@
-# CLI release process
+# CLI releases on GitHub
 
-Source repository: `https://github.com/AKOOL-Official/model-hub-cli`. Production download
-hosting is not yet configured; no public install URL is currently verified as available.
+The installer and binaries are hosted entirely on GitHub. No CDN, custom domain or
+separate download server is needed.
 
-1. Obtain the exact Python SDK wheel required by `pyproject.toml`.
-2. Bump the CLI version in `pyproject.toml` and `src/akool_modelhub_cli/main.py`.
-3. Run `bash scripts/ci.sh` on native macOS arm64, macOS amd64, Linux arm64 and Linux amd64.
-   Set `MODELHUB_SDK_WHEEL=/artifact/path/sdk.whl` before SDK registry publication.
-   Linux binaries target glibc systems: build on the oldest supported distribution and
-   test/document that baseline. macOS artifacts need signing/notarization for broad public
-   release; locally built binaries are ad-hoc signed development artifacts.
-4. Run `.venv/bin/python scripts/build_binaries.py` on each target. It runs a packaged
-   smoke test and emits `dist/release/VERSION/akool-mh-PLATFORM` and `.sha256`.
-5. Collect the four runner outputs, then assemble the static site:
+Customer installation command:
 
-   ```bash
-   .venv/bin/python scripts/assemble_release.py /path/to/artifacts --output dist/site
-   ```
-
-   All four platforms are required by default. `--platforms darwin-arm64` prepares a
-   limited preview for local testing; do not advertise it as a four-platform release.
-   Run `.venv/bin/python scripts/smoke_install.py dist/site` to verify pipe installation,
-   native self-upgrade, preservation on failure and unchanged credentials against a local server.
-6. Upload immutable `dist/site/releases/VERSION/` first and verify those URLs. Then upload
-   `install.sh` and update `latest.txt` last. Do not cache latest.txt or the installer for
-   long periods. Never overwrite an existing versioned release.
-7. Test the hosted installer in a temporary `--install-dir`, verify `--version` and
-   `upgrade`. Only then configure the portal's
-   `VITE_MODEL_HUB_CLI_INSTALL_URL=https://maas.akool.com/cli/install.sh`.
-
-The installer and upgrader share this download contract:
-
-```text
-/cli/install.sh
-/cli/latest.txt                         # plain version, e.g. 0.1.0
-/cli/releases/0.1.0/SHA256SUMS
-/cli/releases/0.1.0/akool-mh-darwin-arm64
-/cli/releases/0.1.0/akool-mh-darwin-amd64
-/cli/releases/0.1.0/akool-mh-linux-arm64
-/cli/releases/0.1.0/akool-mh-linux-amd64
+```bash
+curl -fsSL https://raw.githubusercontent.com/AKOOL-Official/model-hub-cli/main/install.sh | bash
 ```
 
-Serve `/cli/` as static files separately from API and MCP routing. Downloads need no API
-key or repository access. Roll back by pointing `latest.txt` to a prior verified version;
-customers may also pin a specific version. No server deployment is needed for the CLI.
+`install.sh` at the repository root is the only installer source. Wheel builds include
+the same file as `akool_modelhub_cli/install.sh`, used by `akool-mh upgrade` and bundled
+into native binaries. Do not maintain a second script in the Python source directory.
+
+## Publish a version
+
+1. Update the version in `pyproject.toml` and `src/akool_modelhub_cli/main.py` together.
+2. Review `.github/RELEASE_NOTES.md` and update it for that version.
+3. Verify the SDK dependency and pinned SDK revision in `.github/workflows/release.yml`.
+   Until the SDK is published to a registry, CI builds a wheel from that immutable Git
+   revision, tests it and passes the wheel to each native build. No SDK source is copied
+   into this repository or required on the customer's computer.
+4. Commit and push the reviewed code to `main`, then create and push its version tag:
+
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+   Use a new version for subsequent releases. Never move a tag or overwrite an existing
+   release. The workflow checks that the tag matches the package version.
+5. Follow **Build and release CLI** in GitHub Actions. It tests and builds macOS arm64,
+   macOS amd64, Linux amd64 and Linux arm64. Every runner tests the packaged binary's
+   seven commands and the GitHub-layout install/upgrade path using a local fake API.
+6. Only after all four builds pass, the publish job verifies their hashes, uploads assets
+   into a draft, then publishes it as the latest release. It uses the job's `GITHUB_TOKEN`
+   with `contents: write`; no personal token or external hosting secret is needed.
+7. Verify the public installation command using a temporary `AKOOL_MH_INSTALL_DIR` and
+   `akool-mh --version`. Test upgrades without using customer keys or generating media.
+
+Pull requests and manual workflow runs build/test but do not publish. A failed build
+cannot publish a partial release. If uploading fails, inspect the draft before removing
+or completing it; the workflow refuses to overwrite any existing release.
+
+## Download contract
+
+Each tag `vVERSION` contains:
+
+```text
+install.sh
+version.txt                            # plain VERSION, without the v prefix
+SHA256SUMS
+LICENSE
+akool-mh-darwin-arm64
+akool-mh-darwin-amd64
+akool-mh-linux-arm64
+akool-mh-linux-amd64
+```
+
+The default release base is `https://github.com/AKOOL-Official/model-hub-cli/releases`.
+The installer resolves `latest/download/version.txt` once, then downloads the checksum
+and binary from `download/vVERSION/`. This prevents an update to “latest” from mixing
+versions midway through an installation. Explicit `--version VERSION` skips latest lookup.
+
+Only a published release marked as latest is selected automatically; GitHub prereleases
+can be installed by explicit version. The initial 0.1.0 release is the default download
+channel even though its product APIs are still in preview.
+
+## Local verification and mirrors
+
+After installing the exact SDK wheel and CLI build dependencies:
+
+```bash
+.venv/bin/python scripts/build_binaries.py
+.venv/bin/python scripts/assemble_release.py dist/release --layout github --platforms darwin-arm64 --output dist/github-test
+.venv/bin/python scripts/smoke_install.py dist/github-test --layout github
+```
+
+Select the platform matching the build machine. Omitting `--platforms` requires all
+four verified artifacts. `--layout static` still supports a mirror with `latest.txt`
+and `releases/VERSION/`; use `AKOOL_MH_DOWNLOAD_BASE_URL` for its root. GitHub release
+URLs are recognized automatically; `AKOOL_MH_DOWNLOAD_LAYOUT=github|static` can override
+layout detection. Both variables are also honored by `akool-mh upgrade`.
+
+Native compatibility baselines: macOS 14 arm64, macOS 15 Intel, and Ubuntu 22.04/glibc
+2.35 for Linux. macOS binaries are ad-hoc signed, not Apple notarized. There is no Windows
+or Alpine/musl build. Run on the supported OS/architecture; do not rename one platform's
+binary to masquerade as another.
+
+The portal installation URL can point directly to the raw GitHub script after public
+verification: `VITE_MODEL_HUB_CLI_INSTALL_URL=https://raw.githubusercontent.com/AKOOL-Official/model-hub-cli/main/install.sh`.

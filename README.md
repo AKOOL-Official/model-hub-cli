@@ -15,70 +15,79 @@
 models available to your API key, inspect their inputs, estimate the price and track
 generation tasks. The standalone binary runs without Git, Python or Node.js.
 
-> [!IMPORTANT]
-> **Preview release — public downloads are not available yet.** Request the macOS
-> Apple Silicon preview binary from your AKOOL integration contact. The hosted installer
-> is not live, and there are no downloadable GitHub Releases yet.
-
 ## Install
 
-### macOS Apple Silicon preview
-
-Obtain **`akool-mh-darwin-arm64`** and **`akool-mh-darwin-arm64.sha256`** from your
-integration contact. In the directory containing both files, run:
+Install with one command on **macOS or Linux**:
 
 ```bash
-shasum -a 256 -c akool-mh-darwin-arm64.sha256 && \
-  mkdir -p "$HOME/.local/bin" && \
-  install -m 755 ./akool-mh-darwin-arm64 "$HOME/.local/bin/akool-mh"
+curl -fsSL https://raw.githubusercontent.com/AKOOL-Official/model-hub-cli/main/install.sh | bash
 ```
 
-Then make the command available in your current terminal and check the version:
+> [!NOTE]
+> The first GitHub Release is being prepared. The command becomes usable when the
+> [release assets](https://github.com/AKOOL-Official/model-hub-cli/releases) are published.
+
+The installer downloads the matching binary from **GitHub Releases**, verifies its
+SHA256 checksum and installs `akool-mh` to `~/.local/bin`. No Git, Python, Node.js or
+`sudo` is required. An existing installation is preserved if verification fails.
+
+After installation:
 
 ```bash
-export PATH="$HOME/.local/bin:$PATH"
 akool-mh --version
+akool-mh login
 ```
 
-If needed, add the same `export PATH` line to `~/.zshrc` or `~/.bashrc` so it also works
-in new terminals. Installation does not require `sudo`.
+If `~/.local/bin` is not already on your PATH, the installer prints the command to add it.
+For the current terminal, run `export PATH="$HOME/.local/bin:$PATH"`; add that line to
+`~/.zshrc` or `~/.bashrc` to keep it for new terminals.
 
 <details>
-<summary><strong>Other platforms and Python installations</strong></summary>
+<summary><strong>Platforms and installation options</strong></summary>
 
-| Platform | Current status |
+The release workflow builds and tests these platforms before publishing:
+
+| Platform | Build and test environment |
 | --- | --- |
-| macOS · Apple Silicon (arm64) | Preview binary validated locally |
-| macOS · Intel (amd64) | Native build and validation pending |
-| Linux · arm64 / amd64 | Native builds and validation pending |
-| Windows | No standalone installer currently provided |
+| macOS · Apple Silicon (arm64) | macOS 14 |
+| macOS · Intel (amd64) | macOS 15 |
+| Linux · amd64 / arm64 | Ubuntu 22.04, glibc 2.35+ |
 
-**Python 3.11+ alternative:** obtain the CLI wheel and matching Python SDK wheel from
-your integration contact. Place both files in the same directory, then run:
+Windows and Alpine/musl binaries are not currently provided. macOS binaries are ad-hoc
+signed, not Apple notarized.
+
+**Install a specific version:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AKOOL-Official/model-hub-cli/main/install.sh | bash -s -- --version 0.1.0
+```
+
+**Choose an installation directory:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AKOOL-Official/model-hub-cli/main/install.sh | bash -s -- --install-dir "$HOME/bin"
+```
+
+You can also inspect [install.sh](install.sh) before running it, or download a binary
+and `SHA256SUMS` directly from [Releases](https://github.com/AKOOL-Official/model-hub-cli/releases).
+The installer needs Bash, curl and either `shasum` or `sha256sum`.
+
+</details>
+
+<details>
+<summary><strong>Python package alternative</strong></summary>
+
+The standalone installer above is the easiest way to get started. For Python 3.11+
+package installations, obtain the CLI wheel and its matching SDK wheel from your
+integration contact and place them in the same directory:
 
 ```bash
 python -m pip install --find-links . ./akool_modelhub_cli-0.1.0-py3-none-any.whl
 akool-mh --version
 ```
 
-The matching dependency is `akool-modelhub-sdk==0.1.0`. You do not need to clone the SDK
-repository. Neither package is published to a public package registry yet.
-
-</details>
-
-<details>
-<summary><strong>Planned one-command installer — not available yet</strong></summary>
-
-After the download service launches, the installation command will be:
-
-```bash
-# Not live yet — do not run until public downloads are announced.
-curl -fsSL https://maas.akool.com/cli/install.sh | bash
-```
-
-The installer will select the matching platform binary, verify its checksum and install
-it to `~/.local/bin`. It supports `--version` and `--install-dir`, and preserves an
-existing installation if downloading or verification fails.
+The SDK dependency is `akool-modelhub-sdk==0.1.0`; neither Python package is published
+to a public package registry yet. You do not need to clone the SDK repository.
 
 </details>
 
@@ -175,7 +184,7 @@ Run `result` again with the same ID to continue.
 | `akool-mh result TASK_ID` | Read an existing task; add `--wait` to keep waiting |
 | `akool-mh history --limit 10` | List account task history across API keys |
 | `akool-mh logout` | Remove the locally saved key |
-| `akool-mh upgrade` | Update a standalone binary once public downloads are available |
+| `akool-mh upgrade` | Update a standalone binary from GitHub Releases |
 
 Every command accepts `--help`. Use `akool-mh --version` to check your installed version.
 
@@ -239,7 +248,8 @@ Check the exit code as well as task `status`: a successful submission can still 
 | Problem | What to do |
 | --- | --- |
 | `akool-mh: command not found` | Add `~/.local/bin` to `PATH`; see [installation](#install) |
-| Installer URL returns a web page | Public downloads are not live yet; obtain preview artifacts from your integration contact |
+| Installer URL returns a web page | Use the `raw.githubusercontent.com` command above, not a GitHub `/blob/` page |
+| No downloadable release found | Check [Releases](https://github.com/AKOOL-Official/model-hub-cli/releases) and your connection to GitHub |
 | `401` / authentication failed | Check that you are using a valid Model Hub API Key and the correct API root |
 | `403` / access denied | Check the key's permissions and IP restrictions |
 | Model missing or `404` | Search with `models` using the same key and check the exact model ID |
@@ -276,15 +286,14 @@ enabled only when the backend advertises request-ID idempotency.
 
 ## Updates
 
-Once public downloads are available, standalone installations can update with:
+Update a standalone installation from GitHub Releases:
 
 ```bash
 akool-mh upgrade
 ```
 
 Use `akool-mh upgrade --target-version VERSION` to select a specific published version.
-Updates preserve local credentials. Until the download service launches, obtain a newer
-preview binary from your integration contact and repeat the installation steps.
+Updates preserve local credentials and install into the existing binary’s directory.
 
 Python package installations use pip rather than `upgrade`: install the supplied newer
 wheel with its matching SDK dependency, or use `python -m pip install --upgrade
@@ -308,7 +317,7 @@ wheel release artifact. From this repository's root:
 
 ```bash
 uv venv
-uv pip install --python .venv/bin/python /path/to/akool_modelhub_sdk-0.1.0-py3-none-any.whl -e . --group dev
+uv pip install --python .venv/bin/python /path/to/akool_modelhub_sdk-0.1.0-py3-none-any.whl . --group dev
 .venv/bin/python -m pytest
 .venv/bin/ruff check src tests scripts
 uv build --out-dir dist
